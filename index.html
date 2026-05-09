@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 物品辨識</title>
+    <title>FR AI 物品辨識</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
@@ -73,7 +73,7 @@
             });
             v.srcObject = stream;
 
-            loadText.innerText = "AI 核心載入中 (約需 3-5 秒)...";
+            loadText.innerText = "AI 核心載入中...";
             model = await cocoSsd.load();
 
             // 確保影片播放且模型就緒後才移除遮罩
